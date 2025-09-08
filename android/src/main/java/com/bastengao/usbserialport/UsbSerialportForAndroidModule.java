@@ -73,11 +73,33 @@ public class UsbSerialportForAndroidModule extends ReactContextBaseJavaModule im
         WritableArray devices = Arguments.createArray();
         UsbManager usbManager = (UsbManager) getCurrentActivity().getSystemService(Context.USB_SERVICE);
         for (UsbDevice device : usbManager.getDeviceList().values()) {
-            WritableMap d = Arguments.createMap();
-            d.putInt("deviceId", device.getDeviceId());
-            d.putInt("vendorId", device.getVendorId());
-            d.putInt("productId", device.getProductId());
-            devices.pushMap(d);
+            // Check if device has a driver to get port information
+            UsbSerialDriver driver = UsbSerialProber.getDefaultProber().probeDevice(device);
+            if (driver != null && driver.getPorts().size() > 0) {
+                // Add each port as a separate device entry for multi-port devices
+                for (int portIndex = 0; portIndex < driver.getPorts().size(); portIndex++) {
+                    WritableMap d = Arguments.createMap();
+                    // Use unique deviceId for each port
+                    int virtualDeviceId = device.getDeviceId() * 100 + portIndex;
+                    d.putInt("deviceId", virtualDeviceId);
+                    d.putInt("realDeviceId", device.getDeviceId());
+                    d.putInt("vendorId", device.getVendorId());
+                    d.putInt("productId", device.getProductId());
+                    d.putInt("portIndex", portIndex);
+                    d.putInt("totalPorts", driver.getPorts().size());
+                    devices.pushMap(d);
+                }
+            } else {
+                // Add device without driver info for compatibility
+                WritableMap d = Arguments.createMap();
+                d.putInt("deviceId", device.getDeviceId());
+                d.putInt("realDeviceId", device.getDeviceId());
+                d.putInt("vendorId", device.getVendorId());
+                d.putInt("productId", device.getProductId());
+                d.putInt("portIndex", 0);
+                d.putInt("totalPorts", 1);
+                devices.pushMap(d);
+            }
         }
         promise.resolve(devices);
     }
@@ -85,7 +107,9 @@ public class UsbSerialportForAndroidModule extends ReactContextBaseJavaModule im
     @ReactMethod
     public void tryRequestPermission(int deviceId, Promise promise) {
         UsbManager usbManager = (UsbManager) getCurrentActivity().getSystemService(Context.USB_SERVICE);
-        UsbDevice device = findDevice(deviceId);
+        // Extract real device ID
+        int realDeviceId = deviceId >= 100 ? deviceId / 100 : deviceId;
+        UsbDevice device = findDevice(realDeviceId);
         if (device == null) {
             promise.reject(CODE_DEVICE_NOT_FOND, "device not found");
             return;
@@ -104,7 +128,9 @@ public class UsbSerialportForAndroidModule extends ReactContextBaseJavaModule im
     @ReactMethod
     public void hasPermission(int deviceId, Promise promise) {
         UsbManager usbManager = (UsbManager) getCurrentActivity().getSystemService(Context.USB_SERVICE);
-        UsbDevice device = findDevice(deviceId);
+        // Extract real device ID
+        int realDeviceId = deviceId >= 100 ? deviceId / 100 : deviceId;
+        UsbDevice device = findDevice(realDeviceId);
         if (device == null) {
             promise.reject(CODE_DEVICE_NOT_FOND, "device not found");
             return;
@@ -122,8 +148,12 @@ public class UsbSerialportForAndroidModule extends ReactContextBaseJavaModule im
             return;
         }
 
+        // Extract real device ID and port index
+        int realDeviceId = deviceId >= 100 ? deviceId / 100 : deviceId;
+        int portIndex = deviceId >= 100 ? deviceId % 100 : 0;
+
         UsbManager usbManager = (UsbManager) getCurrentActivity().getSystemService(Context.USB_SERVICE);
-        UsbDevice device = findDevice(deviceId);
+        UsbDevice device = findDevice(realDeviceId);
         if (device == null) {
             promise.reject(CODE_DEVICE_NOT_FOND, "device not found");
             return;
@@ -134,8 +164,8 @@ public class UsbSerialportForAndroidModule extends ReactContextBaseJavaModule im
             promise.reject(CODE_DRIVER_NOT_FOND, "no driver for device");
             return;
         }
-        if (driver.getPorts().size() < 0) {
-            promise.reject(CODE_NOT_ENOUGH_PORTS, "not enough ports at device");
+        if (driver.getPorts().size() <= portIndex) {
+            promise.reject(CODE_NOT_ENOUGH_PORTS, "port " + portIndex + " not available, device has " + driver.getPorts().size() + " ports");
             return;
         }
 
@@ -149,7 +179,7 @@ public class UsbSerialportForAndroidModule extends ReactContextBaseJavaModule im
             return;
         }
 
-        UsbSerialPort port = driver.getPorts().get(0);
+        UsbSerialPort port = driver.getPorts().get(portIndex);
         try {
             port.open(connection);
             port.setParameters(baudRate, dataBits, stopBits, parity);
@@ -161,7 +191,9 @@ public class UsbSerialportForAndroidModule extends ReactContextBaseJavaModule im
             return;
         }
 
-        wrapper = new UsbSerialPortWrapper(deviceId, port, this);
+        // Create deviceKey from realDeviceId and portIndex
+        String deviceKey = realDeviceId + "_" + portIndex;
+        wrapper = new UsbSerialPortWrapper(deviceKey, port, this);
         usbSerialPorts.put(deviceId, wrapper);
         promise.resolve(deviceId);
     }
