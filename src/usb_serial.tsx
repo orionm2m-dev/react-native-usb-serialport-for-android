@@ -2,6 +2,7 @@ import type { EventEmitter, EventSubscription } from 'react-native';
 import UsbSerialportForAndroid from './native_module';
 
 const DataReceivedEvent = 'usbSerialPortDataReceived';
+const ErrorEvent = 'usbSerialPortError';
 
 export interface EventData {
   deviceId: number;
@@ -11,7 +12,21 @@ export interface EventData {
   data: string;
 }
 
+export interface ErrorEventData {
+  deviceId: number;
+  deviceKey: string;
+  error: string;
+  errorMessage: string;
+  /**
+   * True if the error is likely caused by physical USB disconnection
+   */
+  isDisconnection: boolean;
+  portIndex: number;
+  realDeviceId: number;
+}
+
 export type Listener = (data: EventData) => void;
+export type ErrorListener = (error: ErrorEventData) => void;
 
 export default class UsbSerial {
   deviceId: number;
@@ -61,6 +76,26 @@ export default class UsbSerial {
 
     this.listeners.push(listenerProxy);
     const sub = this.eventEmitter.addListener(DataReceivedEvent, listenerProxy);
+    this.subscriptions.push(sub);
+    return sub;
+  }
+
+  /**
+   * Listen to error events, including physical USB disconnection.
+   *
+   * @param listener
+   * @returns EventSubscription
+   */
+  onError(listener: ErrorListener) {
+    const listenerProxy = (event: ErrorEventData) => {
+      if (event.deviceId !== this.deviceId) {
+        return;
+      }
+
+      listener(event);
+    };
+
+    const sub = this.eventEmitter.addListener(ErrorEvent, listenerProxy);
     this.subscriptions.push(sub);
     return sub;
   }
