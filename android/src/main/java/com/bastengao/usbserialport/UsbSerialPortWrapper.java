@@ -109,12 +109,19 @@ public class UsbSerialPortWrapper implements SerialInputOutputManager.Listener {
         }
 
         // Detect if this is a physical disconnection
-        // Common disconnection exceptions: IOException with "device not found" or null connection
+        // Common disconnection exceptions: IOException with various error messages
+        String errorMsg = e.getMessage() != null ? e.getMessage().toLowerCase() : "";
         boolean isDisconnection = e instanceof IOException &&
             (e.getMessage() == null ||
-             e.getMessage().toLowerCase().contains("device") ||
-             e.getMessage().toLowerCase().contains("connection") ||
-             e.getMessage().toLowerCase().contains("disconnect"));
+             errorMsg.contains("device") ||
+             errorMsg.contains("connection") ||
+             errorMsg.contains("disconnect") ||
+             errorMsg.contains("get_status") ||     // USB status check failed
+             errorMsg.contains("status request") || // Status request failed
+             errorMsg.contains("not open") ||       // Port not open
+             errorMsg.contains("closed") ||         // Port closed
+             errorMsg.contains("usb") ||            // Generic USB errors
+             errorMsg.contains("i/o error"));       // Generic I/O errors
         event.putBoolean("isDisconnection", isDisconnection);
 
         Log.d("usbserialport", "📡 Sending error event for device " + this.deviceKey +
