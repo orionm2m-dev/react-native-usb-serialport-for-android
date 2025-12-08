@@ -3,7 +3,7 @@ import UsbSerialportForAndroid, { Device } from './native_module';
 import UsbSerial from './usb_serial';
 
 export { Device, UsbSerial };
-export { Listener, EventData } from './usb_serial';
+export { Listener, EventData, ErrorListener, ErrorEventData } from './usb_serial';
 
 const {
   CODE_DEVICE_NOT_FOND,

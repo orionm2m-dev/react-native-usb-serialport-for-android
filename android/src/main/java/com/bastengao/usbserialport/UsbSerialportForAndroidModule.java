@@ -6,6 +6,7 @@ import android.content.Intent;
 import android.hardware.usb.UsbDevice;
 import android.hardware.usb.UsbDeviceConnection;
 import android.hardware.usb.UsbManager;
+import android.util.Log;
 
 import androidx.annotation.NonNull;
 
@@ -27,7 +28,7 @@ import java.util.HashMap;
 import java.util.Map;
 
 @ReactModule(name = UsbSerialportForAndroidModule.NAME)
-public class UsbSerialportForAndroidModule extends ReactContextBaseJavaModule implements EventSender {
+public class UsbSerialportForAndroidModule extends ReactContextBaseJavaModule implements EventSender, UsbSerialPortWrapper.ErrorCallback {
     public static final String NAME = "UsbSerialportForAndroid";
     private static final String INTENT_ACTION_GRANT_USB = BuildConfig.LIBRARY_PACKAGE_NAME + ".GRANT_USB";
 
@@ -193,7 +194,7 @@ public class UsbSerialportForAndroidModule extends ReactContextBaseJavaModule im
 
         // Create deviceKey from realDeviceId and portIndex
         String deviceKey = realDeviceId + "_" + portIndex;
-        wrapper = new UsbSerialPortWrapper(deviceKey, port, this);
+        wrapper = new UsbSerialPortWrapper(deviceKey, deviceId, port, this, this);
         usbSerialPorts.put(deviceId, wrapper);
         promise.resolve(deviceId);
     }
@@ -237,6 +238,16 @@ public class UsbSerialportForAndroidModule extends ReactContextBaseJavaModule im
                     .emit(eventName, event);
             }
         });
+    }
+
+    @Override
+    public void onPortError(int deviceId) {
+        // Called when the wrapper encounters an error (e.g., USB disconnection)
+        // Remove the wrapper from the map to prevent memory leaks
+        UsbSerialPortWrapper removed = usbSerialPorts.remove(deviceId);
+        if (removed != null) {
+            Log.d("usbserialport", "🧹 Removed wrapper for deviceId " + deviceId + " after error");
+        }
     }
 
     private UsbDevice findDevice(int deviceId) {
