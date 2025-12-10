@@ -1,8 +1,10 @@
 package com.bastengao.usbserialport;
 
 import android.app.PendingIntent;
+import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
+import android.content.IntentFilter;
 import android.hardware.usb.UsbDevice;
 import android.hardware.usb.UsbDeviceConnection;
 import android.hardware.usb.UsbManager;
@@ -32,6 +34,11 @@ public class UsbSerialportForAndroidModule extends ReactContextBaseJavaModule im
     public static final String NAME = "UsbSerialportForAndroid";
     private static final String INTENT_ACTION_GRANT_USB = BuildConfig.LIBRARY_PACKAGE_NAME + ".GRANT_USB";
 
+    // Event names
+    private static final String EVENT_USB_ATTACHED = "usbSerialPortAttached";
+    private static final String EVENT_USB_DETACHED = "usbSerialPortDetached";
+
+    // Error codes
     public static final String CODE_DEVICE_NOT_FOND = "device_not_found";
     public static final String CODE_DRIVER_NOT_FOND = "driver_not_found";
     public static final String CODE_NOT_ENOUGH_PORTS = "not_enough_ports";
@@ -43,10 +50,12 @@ public class UsbSerialportForAndroidModule extends ReactContextBaseJavaModule im
 
     private final ReactApplicationContext reactContext;
     private final Map<Integer, UsbSerialPortWrapper> usbSerialPorts = new HashMap<Integer, UsbSerialPortWrapper>();
+    private BroadcastReceiver usbReceiver;
 
     public UsbSerialportForAndroidModule(ReactApplicationContext reactContext) {
         super(reactContext);
         this.reactContext = reactContext;
+        registerUsbReceiver();
     }
 
     @Override
@@ -281,5 +290,140 @@ public class UsbSerialportForAndroidModule extends ReactContextBaseJavaModule im
             hexChars[j * 2 + 1] = HEX_ARRAY[v & 0x0F];
         }
         return new String(hexChars);
+    }
+
+    /**
+     * Register BroadcastReceiver for USB attach/detach events
+     */
+    private void registerUsbReceiver() {
+        try {
+            usbReceiver = new BroadcastReceiver() {
+                @Override
+                public void onReceive(Context context, Intent intent) {
+                    String action = intent.getAction();
+
+                    if (UsbManager.ACTION_USB_DEVICE_ATTACHED.equals(action)) {
+                        UsbDevice device = intent.getParcelableExtra(UsbManager.EXTRA_DEVICE);
+                        if (device != null) {
+                            handleUsbDeviceAttached(device);
+                        }
+                    } else if (UsbManager.ACTION_USB_DEVICE_DETACHED.equals(action)) {
+                        UsbDevice device = intent.getParcelableExtra(UsbManager.EXTRA_DEVICE);
+                        if (device != null) {
+                            handleUsbDeviceDetached(device);
+                        }
+                    }
+                }
+            };
+
+            IntentFilter filter = new IntentFilter();
+            filter.addAction(UsbManager.ACTION_USB_DEVICE_ATTACHED);
+            filter.addAction(UsbManager.ACTION_USB_DEVICE_DETACHED);
+
+            reactContext.registerReceiver(usbReceiver, filter);
+            Log.d("usbserialport", "📡 USB BroadcastReceiver registered");
+        } catch (Exception e) {
+            Log.e("usbserialport", "❌ Failed to register USB BroadcastReceiver", e);
+        }
+    }
+
+    /**
+     * Unregister BroadcastReceiver to prevent memory leaks
+     */
+    private void unregisterUsbReceiver() {
+        try {
+            if (usbReceiver != null) {
+                reactContext.unregisterReceiver(usbReceiver);
+                usbReceiver = null;
+                Log.d("usbserialport", "🧹 USB BroadcastReceiver unregistered");
+            }
+        } catch (Exception e) {
+            Log.e("usbserialport", "❌ Failed to unregister USB BroadcastReceiver", e);
+        }
+    }
+
+    /**
+     * Handle USB device attached event
+     */
+    private void handleUsbDeviceAttached(UsbDevice device) {
+        Log.d("usbserialport", "🔌 USB device attached: " + device.getDeviceName() +
+              " (VID: " + device.getVendorId() + ", PID: " + device.getProductId() + ")");
+
+        WritableMap event = createDeviceEventData(device);
+        sendEvent(EVENT_USB_ATTACHED, event);
+    }
+
+    /**
+     * Handle USB device detached event
+     */
+    private void handleUsbDeviceDetached(UsbDevice device) {
+        Log.d("usbserialport", "🔌 USB device detached: " + device.getDeviceName() +
+              " (VID: " + device.getVendorId() + ", PID: " + device.getProductId() + ")");
+
+        WritableMap event = createDeviceEventData(device);
+        sendEvent(EVENT_USB_DETACHED, event);
+    }
+
+    /**
+     * Create device event data with all device information
+     */
+    private WritableMap createDeviceEventData(UsbDevice device) {
+        WritableMap event = Arguments.createMap();
+
+        int realDeviceId = device.getDeviceId();
+        event.putInt("deviceId", realDeviceId);
+        event.putInt("vendorId", device.getVendorId());
+        event.putInt("productId", device.getProductId());
+        event.putString("deviceName", device.getDeviceName());
+
+        // Try to get driver info for port information
+        try {
+            UsbSerialDriver driver = UsbSerialProber.getDefaultProber().probeDevice(device);
+            if (driver != null) {
+                int portCount = driver.getPorts().size();
+                event.putInt("portCount", portCount);
+                event.putBoolean("hasDriver", true);
+
+                // Include all port virtual IDs for multi-port devices
+                WritableArray portIds = Arguments.createArray();
+                for (int i = 0; i < portCount; i++) {
+                    int virtualDeviceId = realDeviceId * 100 + i;
+                    portIds.pushInt(virtualDeviceId);
+                }
+                event.putArray("portIds", portIds);
+            } else {
+                event.putInt("portCount", 0);
+                event.putBoolean("hasDriver", false);
+                event.putArray("portIds", Arguments.createArray());
+            }
+        } catch (Exception e) {
+            Log.e("usbserialport", "Error getting driver info", e);
+            event.putInt("portCount", 0);
+            event.putBoolean("hasDriver", false);
+            event.putArray("portIds", Arguments.createArray());
+        }
+
+        return event;
+    }
+
+    /**
+     * Called when the React Native catalyst instance is destroyed
+     * Clean up resources to prevent memory leaks
+     */
+    @Override
+    public void onCatalystInstanceDestroy() {
+        unregisterUsbReceiver();
+
+        // Close all open connections
+        for (UsbSerialPortWrapper wrapper : usbSerialPorts.values()) {
+            try {
+                wrapper.close();
+            } catch (Exception e) {
+                Log.e("usbserialport", "Error closing wrapper on destroy", e);
+            }
+        }
+        usbSerialPorts.clear();
+
+        super.onCatalystInstanceDestroy();
     }
 }

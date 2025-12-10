@@ -25,8 +25,41 @@ export interface ErrorEventData {
   realDeviceId: number;
 }
 
+export interface UsbDeviceEventData {
+  /**
+   * Physical device ID
+   */
+  deviceId: number;
+  /**
+   * USB Vendor ID
+   */
+  vendorId: number;
+  /**
+   * USB Product ID
+   */
+  productId: number;
+  /**
+   * Device name (path in filesystem, e.g., /dev/bus/usb/001/002)
+   */
+  deviceName: string;
+  /**
+   * Number of serial ports available on this device
+   */
+  portCount: number;
+  /**
+   * Whether a driver is available for this device
+   */
+  hasDriver: boolean;
+  /**
+   * Virtual device IDs for all ports (for multi-port devices)
+   * Format: [deviceId * 100 + portIndex, ...]
+   */
+  portIds: number[];
+}
+
 export type Listener = (data: EventData) => void;
 export type ErrorListener = (error: ErrorEventData) => void;
+export type UsbDeviceListener = (device: UsbDeviceEventData) => void;
 
 export default class UsbSerial {
   deviceId: number;
