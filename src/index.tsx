@@ -1,9 +1,16 @@
-import { NativeEventEmitter, NativeModules, Platform } from 'react-native';
+import { NativeEventEmitter, NativeModules, Platform, EventSubscription } from 'react-native';
 import UsbSerialportForAndroid, { Device } from './native_module';
 import UsbSerial from './usb_serial';
 
 export { Device, UsbSerial };
-export { Listener, EventData, ErrorListener, ErrorEventData } from './usb_serial';
+export {
+  Listener,
+  EventData,
+  ErrorListener,
+  ErrorEventData,
+  UsbDeviceListener,
+  UsbDeviceEventData,
+} from './usb_serial';
 
 const {
   CODE_DEVICE_NOT_FOND,
@@ -120,3 +127,60 @@ export const UsbSerialManager: Manager =
           },
         }
       ) as Manager);
+
+/**
+ * Listen for USB device attached events (system-wide)
+ * This is triggered when ANY USB device is physically plugged in
+ *
+ * @param listener - Callback function to handle device attached event
+ * @returns EventSubscription that can be removed with subscription.remove()
+ *
+ * @example
+ * ```typescript
+ * const subscription = addUsbDeviceAttachedListener((device) => {
+ *   console.log('USB device plugged in:', device.deviceName);
+ *   console.log('Vendor ID:', device.vendorId);
+ *   console.log('Product ID:', device.productId);
+ *   console.log('Has driver:', device.hasDriver);
+ * });
+ *
+ * // Later, clean up
+ * subscription.remove();
+ * ```
+ */
+export function addUsbDeviceAttachedListener(
+  listener: import('./usb_serial').UsbDeviceListener
+): EventSubscription {
+  if (Platform.OS !== 'android') {
+    throw new Error(`Not support ${Platform.OS}`);
+  }
+  return eventEmitter.addListener('usbSerialPortAttached', listener);
+}
+
+/**
+ * Listen for USB device detached events (system-wide)
+ * This is triggered when ANY USB device is physically unplugged
+ *
+ * @param listener - Callback function to handle device detached event
+ * @returns EventSubscription that can be removed with subscription.remove()
+ *
+ * @example
+ * ```typescript
+ * const subscription = addUsbDeviceDetachedListener((device) => {
+ *   console.log('USB device unplugged:', device.deviceName);
+ *   console.log('Vendor ID:', device.vendorId);
+ *   console.log('Product ID:', device.productId);
+ * });
+ *
+ * // Later, clean up
+ * subscription.remove();
+ * ```
+ */
+export function addUsbDeviceDetachedListener(
+  listener: import('./usb_serial').UsbDeviceListener
+): EventSubscription {
+  if (Platform.OS !== 'android') {
+    throw new Error(`Not support ${Platform.OS}`);
+  }
+  return eventEmitter.addListener('usbSerialPortDetached', listener);
+}
